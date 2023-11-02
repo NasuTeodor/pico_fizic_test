@@ -1,3 +1,4 @@
+from numpy import right_shift
 from machine import Pin, I2C, PWM   
 from vl53l0x import setup_tofl_device, TBOOT
 import utime
@@ -18,6 +19,9 @@ dr = Pin(21, Pin.IN)
 st = Pin(20, Pin.IN)
 
 START = Pin(9, Pin.IN)
+
+glb.value(1)
+vrd.value(0)
 
 # setup i2c bus 0
 i2c_0 = I2C(id=0, sda=Pin(16), scl=Pin(17))
@@ -137,6 +141,32 @@ def m_turn(turn_speed, direction):
         m_right2.init(freq=PWM_FREQ, duty_u16=0) # type: ignore
         m_right2.duty_u16(0)
 
+
+#merge doar pentru miscare frontala
+#power este viteza motoarelor
+#delta este puterea care se scade dintr-o parte pentru turn
+#direction este directia de turn
+#1 = dreapta mereu
+#-1 = stanga mereu
+def m_divert(power, delta,  direction):
+    '''
+    Works only for forward movement
+    '''
+    left = power
+    right = power
+    if direction == 1:
+        right -= delta
+    else:
+        left -= delta
+
+    left = int(left)
+    right = int(right)
+
+    m_speed(left, right, 1)
+
+def m_stop():
+    m_speed(0, 0, 0)
+
 # reset procedure for each TOF device
 device_0_xshut.value(0)
 device_1_xshut.value(0)
@@ -156,7 +186,6 @@ device_2_xshut.value(0)
 utime.sleep_us(TBOOT)
 
 tofl0 = setup_tofl_device(i2c_0, 40000, 12, 8) 
-
 tofl0.set_address(0x31)
 
 # setting up device TOF 1
@@ -167,7 +196,6 @@ device_1_xshut.value(1)
 utime.sleep_us(TBOOT)
 
 tofl1 = setup_tofl_device(i2c_0, 40000, 12, 8)
-
 tofl1.set_address(0x32)
 
 # setting up device TOF 2
@@ -178,7 +206,6 @@ device_2_xshut.value(1)
 utime.sleep_us(TBOOT)
 
 tofl2 = setup_tofl_device(i2c_0, 40000, 12, 8)
-
 tofl2.set_address(0x33)
 
 mpu = MPU6050(i2c_1)
@@ -188,26 +215,35 @@ print("calibrating")
 mpu.Calibrate()
 print('done calibrating')
 
+#MARK FINISH INIT AND WAIT FOR START
+glb.value(0)
+vrd.value(1)
+
+glb.value(1)
+vrd.value(0)
 
 # active loop 
 while START.value() == 0:
     a = 0
 
 
+glb.value(0)
+vrd.value(1)
 while True:
-    vrd.value(1)
-    glb.value(0)
     mpu.read()
-    head = mpu._angZ
-    target = head + 90
+    leftDist = tofl0.ping()
+    centerDist = tofl1.ping()
+    rightDist = tofl2.ping()
 
+    print(leftDist,' ', centerDist, ' ', right_shift)
+    
     # if START.value() == 1:
     #     m_speed(speed_left=LEFT_SPEED, speed_right=RIGHT_SPEED, direction=1)
         # utime.sleep_ms(2000)
     # else:
     #     m_speed(0,0,0)
-    m_speed(LEFT_SPEED, RIGHT_SPEED, 1)
-    utime.sleep_ms(500)
+    # m_speed(LEFT_SPEED, RIGHT_SPEED, 1)
+    # utime.sleep_ms(500)
     # while mpu._gyroZ != 0 :
     #     m_speed(LEFT_SPEED, RIGHT_SPEED, -1)
     #     if START.value() == 0:
@@ -219,21 +255,21 @@ while True:
     # utime.sleep_ms(10000)
     # while True:
         # a = 1
-    m_turn(turn_speed=int(REAL_SPEED), direction='LEFT')
-    vrd.value(0)
-    glb.value(1)
-    while mpu._angZ < target:
-        if START.value() == 0:
-            break
-        mpu.read()
-    m_speed(LEFT_SPEED, RIGHT_SPEED, 0)
+    # m_turn(turn_speed=int(REAL_SPEED), direction='LEFT')
+    # vrd.value(0)
+    # glb.value(1)
+    # while mpu._angZ < target:
+    #     if START.value() == 0:
+    #         break
+    #     mpu.read()
+    # m_speed(LEFT_SPEED, RIGHT_SPEED, 0)
     #after turning set the gyro pose to 0
-    mpu._gyroZ = 0
-    head = 0
-    vrd.value(1)
-    glb.value(0)
-    while True:
-        a = 0
+    # mpu._gyroZ = 0
+    # head = 0
+    # vrd.value(1)
+    # glb.value(0)
+    # while True:
+    #     a = 0
     
     # m_speed(REAL_SPEED, 1)
     # ax = mpu._gyroX
@@ -259,6 +295,3 @@ while True:
     # print(f'accX {mpu._gyroX}','\r')
     # print(f'angle z {mpu._angZ}','\r')
     # print("Distance 1: ", tofl0.ping(), "mm", "Distance 2: ", tofl1.ping(), "mm", "Distance 3: ", tofl2.ping(), "mm")
-
-
-    # SA MA SUGI DE PULA FRAERE
