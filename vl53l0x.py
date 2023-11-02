@@ -142,7 +142,7 @@ class VL53L0X:
         self.start()
         distance = self.read()
         self.stop()
-        return distance
+        return distance-40
 
     def _registers(self, register, values=None, struct='B'):
         if values is None:

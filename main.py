@@ -1,9 +1,16 @@
-from numpy import right_shift
-from machine import Pin, I2C, PWM   
+from machine import Pin, I2C, PWM
+from uasyncio import sleep_ms   
 from vl53l0x import setup_tofl_device, TBOOT
 import utime
 from time import sleep
 from mpu6050 import MPU6050
+
+def wrap(angle):
+    while (angle > +180):
+        angle -= 360
+    while (angle < -180):
+        angle += 360
+    return angle
 
 # shutdown pins for each device
 device_0_xshut = Pin(14, Pin.OUT)
@@ -167,6 +174,34 @@ def m_divert(power, delta,  direction):
 def m_stop():
     m_speed(0, 0, 0)
 
+def logic_decide(left, center, right):
+    a = 0
+    if right > 200:
+        return 'RIGHT'
+    elif center > 100 :
+        return 'CENTER'
+    elif left > 200:
+        return 'LEFT'
+    else:
+        return 'BACK'
+    
+def go_forward():
+    m_speed(REAL_SPEED, REAL_SPEED, 1)
+def go_right():
+    mpu.read()
+    head = mpu._angZ
+    target = wrap(head - 90)
+    while mpu._angZ > target:
+        mpu.read()
+        m_turn(turn_speed=REAL_SPEED, direction='RIGHT')
+def go_left():
+    mpu.read()
+    head = mpu._angZ
+    target = wrap(head + 90)
+    while mpu._angZ < target:
+        mpu.read()
+        m_turn(turn_speed=REAL_SPEED, direction='LEFT')
+
 # reset procedure for each TOF device
 device_0_xshut.value(0)
 device_1_xshut.value(0)
@@ -216,9 +251,6 @@ mpu.Calibrate()
 print('done calibrating')
 
 #MARK FINISH INIT AND WAIT FOR START
-glb.value(0)
-vrd.value(1)
-
 glb.value(1)
 vrd.value(0)
 
@@ -231,12 +263,30 @@ glb.value(0)
 vrd.value(1)
 while True:
     mpu.read()
-    leftDist = tofl0.ping()
-    centerDist = tofl1.ping()
-    rightDist = tofl2.ping()
+    centerDist = tofl0.ping()
+    rightDist = tofl1.ping()
+    leftDist = tofl2.ping()
 
-    print(leftDist,' ', centerDist, ' ', right_shift)
-    
+    # print(logic_decide(left=leftDist, center=centerDist, right=rightDist))
+    logic = logic_decide(left=leftDist, center=centerDist, right=rightDist)
+
+    while logic == 'CENTER':
+        while START.value() == 0:
+            nuMerge = 'ADEVARAT'
+        mpu.read()
+        centerDist = tofl0.ping()
+        rightDist = tofl1.ping()
+        leftDist = tofl2.ping()
+        go_forward()
+        logic = logic_decide(leftDist, centerDist, rightDist)
+    else:
+        if logic == 'RIGHT':
+            go_right()
+            mpu._angZ = 0
+        elif logic == 'LEFT':
+            go_left()
+            mpu._angZ = 0
+
     # if START.value() == 1:
     #     m_speed(speed_left=LEFT_SPEED, speed_right=RIGHT_SPEED, direction=1)
         # utime.sleep_ms(2000)
