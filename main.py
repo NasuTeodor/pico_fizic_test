@@ -55,9 +55,15 @@ m_right2.freq(PWM_FREQ)
 
 MOTOR_STATE = 'STOP'
 MOTOR_MAX = 65025
-MOTOR_SPEED = 1
+MOTOR_SPEED = 0.5
 REAL_SPEED = MOTOR_SPEED * MOTOR_MAX
 REAL_SPEED = int(REAL_SPEED)
+
+BRAKE_TIME = 350
+LONG_BRAKE_TIME = 500
+
+TURN_ANGLE = 45
+TURN_SPEED = int(MOTOR_MAX)
 
 LEFT_SPEED = REAL_SPEED
 RIGHT_SPEED = REAL_SPEED
@@ -175,32 +181,79 @@ def m_stop():
     m_speed(0, 0, 0)
 
 def logic_decide(left, center, right):
-    a = 0
-    if right > 200:
+    # if left > 200 and center > 200 and right > 200:
+    #     return 'STOP'
+
+    if right > 250:
         return 'RIGHT'
-    elif center > 100 :
+    elif center > 150 :
         return 'CENTER'
-    elif left > 200:
+    elif left > 250:
         return 'LEFT'
     else:
         return 'BACK'
     
 def go_forward():
+    glb.value(1)
+    vrd.value(1)
     m_speed(REAL_SPEED, REAL_SPEED, 1)
 def go_right():
+    glb.value(0)
+    vrd.value(1)
     mpu.read()
     head = mpu._angZ
-    target = wrap(head - 90)
+    target = wrap(head - TURN_ANGLE)
     while mpu._angZ > target:
         mpu.read()
-        m_turn(turn_speed=REAL_SPEED, direction='RIGHT')
+        if tofl0.ping() < 20:
+            brake()
+        m_turn(turn_speed=TURN_SPEED, direction='RIGHT')
 def go_left():
+    glb.value(1)
+    vrd.value(0)
     mpu.read()
     head = mpu._angZ
-    target = wrap(head + 90)
+    target = wrap(head + TURN_ANGLE)
+    while mpu._angZ < target:
+        if tofl0.ping() < 20:
+            brake()
+        mpu.read()
+        m_turn(turn_speed=TURN_SPEED, direction='LEFT')
+def go_back():
+        m_left1.init(freq=PWM_FREQ, duty_u16=REAL_SPEED) # type: ignore
+        m_left1.duty_u16(REAL_SPEED)
+        m_left2.init(freq=PWM_FREQ, duty_u16=0) # type: ignore
+        m_left2.duty_u16(0)
+        m_right1.init(freq=PWM_FREQ, duty_u16=REAL_SPEED) # type: ignore
+        m_right1.duty_u16(REAL_SPEED)
+        m_right2.init(freq=PWM_FREQ, duty_u16=0) # type: ignore
+        m_right2.duty_u16(0)
+def turn_back():
+    glb.value(0)
+    vrd.value(0)
+    mpu.read()
+    head = mpu._angZ
+    target = wrap(head + (TURN_ANGLE * 2) + 15) # +15 not enough deg
+    brake()
     while mpu._angZ < target:
         mpu.read()
-        m_turn(turn_speed=REAL_SPEED, direction='LEFT')
+        m_turn(turn_speed=TURN_SPEED, direction='LEFT')
+
+def brake():
+    mpu.read()
+    startTime = utime.ticks_ms()
+    while(utime.ticks_diff(utime.ticks_ms(), startTime) <= BRAKE_TIME):
+        mpu.read()
+        go_back()
+    m_stop()
+
+def long_brake():
+    mpu.read()
+    startTime = utime.ticks_ms()
+    while(utime.ticks_diff(utime.ticks_ms(), startTime) <= LONG_BRAKE_TIME):
+        mpu.read()
+        go_back()
+    m_stop()
 
 # reset procedure for each TOF device
 device_0_xshut.value(0)
@@ -251,16 +304,21 @@ mpu.Calibrate()
 print('done calibrating')
 
 #MARK FINISH INIT AND WAIT FOR START
-glb.value(1)
+glb.value(0)
 vrd.value(0)
 
 # active loop 
 while START.value() == 0:
     a = 0
 
+m_speed(MOTOR_MAX, MOTOR_MAX, 1)
+sleep(0.2)
 
 glb.value(0)
 vrd.value(1)
+
+first = 'CENTER'
+
 while True:
     mpu.read()
     centerDist = tofl0.ping()
@@ -269,10 +327,16 @@ while True:
 
     # print(logic_decide(left=leftDist, center=centerDist, right=rightDist))
     logic = logic_decide(left=leftDist, center=centerDist, right=rightDist)
-
-    while logic == 'CENTER':
+    while START.value() == 0:
+            nuMerge = 'ADEVARAT'
+            m_stop()
+    print(logic)
+    while logic == 'CENTER' or first == 'CENTER':
+    # while logic == 'RIGHT':
+        first = 0
         while START.value() == 0:
             nuMerge = 'ADEVARAT'
+            m_stop()
         mpu.read()
         centerDist = tofl0.ping()
         rightDist = tofl1.ping()
@@ -281,11 +345,25 @@ while True:
         logic = logic_decide(leftDist, centerDist, rightDist)
     else:
         if logic == 'RIGHT':
+        # if logic == 'CENTER':
+            long_brake()
             go_right()
+            m_speed(MOTOR_MAX, MOTOR_MAX, 1)
+            sleep(0.3)
             mpu._angZ = 0
         elif logic == 'LEFT':
+            long_brake()
             go_left()
+            m_speed(MOTOR_MAX, MOTOR_MAX, 1)
+            sleep(0.3)
             mpu._angZ = 0
+        elif logic == 'BACK':
+            turn_back()
+            m_stop()
+        # elif logic == 'STOP':
+        #     while START.value() == 1:
+        #         nuMerge = 'ADEVARAT'
+        #         m_stop()
 
     # if START.value() == 1:
     #     m_speed(speed_left=LEFT_SPEED, speed_right=RIGHT_SPEED, direction=1)
